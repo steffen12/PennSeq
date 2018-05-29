@@ -31,20 +31,21 @@ def getExonsReadMappedTo(cigarMatchInfoCount, cigarMatchRead, cigarNumberRead, e
 
     firstExonRead = -1
     lastExonRead = -1
-    currentExon = 0
     for i in range(cigarMatchInfoCount):
         
         if cigarMatchRead[i] == "M" or cigarMatchRead[i] == "I": ## matched CIGAR
 
             for j in range(1,cigarNumberRead[i]+1):
                 tmpbase = base + j
-                if tmpbase >= exonStarts[currentExon] and tmpbase <= exonEnds[currentExon]:
-                    if firstExonRead == -1:
-                        firstExonRead = currentExon 
-                    lastExonRead = currentExon
-                    exonIndicatorRead[currentExon] = 1 ## confirm that the read covers this exon
-                while tmpbase > exonEnds[currentExon]:
-                    currentExon += 1
+                for k in range(len(exonStarts)):
+                    if exonIndicatorRead[k] == 1: 
+                        continue #Go to next loop iteration
+                    if tmpbase >= exonStarts[k] and tmpbase <= exonEnds[k]:
+                        if firstExonRead == -1:
+                            firstExonRead = k 
+                        lastExonRead = k
+                        exonIndicatorRead[k] = 1 ## confirm that the read covers this exon
+
             base += cigarNumberRead[i] # jump to next match information
 
         if cigarMatchRead[i] == "N": ## skipping area
@@ -61,6 +62,42 @@ def getExonsReadMappedTo(cigarMatchInfoCount, cigarMatchRead, cigarNumberRead, e
     #print(compatibleVector2)
 
     return compatibleVector, tmpcount, firstExonRead, lastExonRead
+
+# def getExonsReadMappedTo(cigarMatchInfoCount, cigarMatchRead, cigarNumberRead, exonStarts, base, numofExons, isoformNames, compatibleVector, exonIndicators):
+#     exonIndicatorRead = [0] * numofExons
+
+#     firstExonRead = -1
+#     lastExonRead = -1
+#     currentExon = 0
+#     for i in range(cigarMatchInfoCount):
+        
+#         if cigarMatchRead[i] == "M" or cigarMatchRead[i] == "I": ## matched CIGAR
+
+#             for j in range(1,cigarNumberRead[i]+1):
+#                 tmpbase = base + j
+#                 if tmpbase >= exonStarts[currentExon] and tmpbase <= exonEnds[currentExon]:
+#                     if firstExonRead == -1:
+#                         firstExonRead = currentExon 
+#                     lastExonRead = currentExon
+#                     exonIndicatorRead[currentExon] = 1 ## confirm that the read covers this exon
+#                 while tmpbase > exonEnds[currentExon]:
+#                     currentExon += 1
+#             base += cigarNumberRead[i] # jump to next match information
+
+#         if cigarMatchRead[i] == "N": ## skipping area
+#             base += cigarNumberRead[i] # jump to next match information directly
+
+#     for j in range(len(isoformNames)):
+#         for exonIndex in range(firstExonRead, lastExonRead+1):
+#             #print(exonIndicatorRead1[exonIndex], exonIndicators[isoformNames[j]][exonIndex])
+#             if exonIndicatorRead[exonIndex] != exonIndicators[isoformNames[j]][exonIndex]:
+#                 compatibleVector[j] = 0
+#     tmpcount = sum(exonIndicatorRead)
+#     #print("Vectors")
+#     #print(compatibleVector)
+#     #print(compatibleVector2)
+
+#     return compatibleVector, tmpcount, firstExonRead, lastExonRead
 
 ###############################################################################
 ###  ARGUMENT SETTINGS
@@ -383,7 +420,7 @@ for gene in geneStructureInformation: #This can be made parallel easily
     ## EM algorithm
     #####################################################################################################
 
-    Alpha = [1.0] * len(isoformNames)
+    Alpha = [1.0] * len(isoformNames) #This is Theta with ~ over it
     oldAlpha = [None] * len(isoformNames)
 
     isoformLength = auto_dict()
@@ -450,66 +487,56 @@ for gene in geneStructureInformation: #This can be made parallel easily
                     if bool(readsDistributionIsoform[isoformNames[i]][k]):
                         numerator[readName][isoformNames[i]] += float(readsDistributionIsoform[isoformNames[i]][k])
                     k += 1
-                print(isoformNames[i], readName, numerator[readName][isoformNames[i]])
+                #print(isoformNames[i], readName, numerator[readName][isoformNames[i]])
                 if denominator[isoformNames[i]] > 0 and numerator[readName][isoformNames[i]] >= 0: 
                     
                     Hfunction[readName][isoformNames[i]] = float(numerator[readName][isoformNames[i]]) / denominator[isoformNames[i]]
                 else: 
                     Hfunction[readName][isoformNames[i]] = 0
 
-    print("Time to Analyze Distribution", time.time() - startTime)
+    print("Time to Precompute", time.time() - startTime)
     #########################################################################################################
     ## iteration begins        
             
     diff = 1.0
     iterCount = 0
-    readLength = 300
+    d = 300
     diffMax = .0001
     while diff > diffMax:
         #print(gene+"\t"+str(geneCount)+"\t"+str(iterCount)+"\t"+str(diff)+"\t"+str(tmpTime))
-        up = None
-        down = None
+
+        #Expectation Step
         if iterCount == 0:
-
             for readName in qualifiedRead:
-                    
-                    #up = 0.0
-                down = 0.0
-                for j in range(len(isoformNames)):
-                    if CompatibleMatrix[readName][isoformNames[j]] == 1:
-                        if (isoformLength[isoformNames[j]]-readLength+1) > 0: 
-                            down += Alpha[j] / (isoformLength[isoformNames[j]]-readLength+1)
-                        else: 
-                            down += Alpha[j]
+                probNumerators = [0 for j in range(len(isoformNames))]
                 for i in range(len(isoformNames)):
-                    up = 0.0
                     if CompatibleMatrix[readName][isoformNames[i]] == 1:
-                        if (isoformLength[isoformNames[i]]-readLength+1) > 0: 
-                            up = Alpha[i] / (isoformLength[isoformNames[i]]-readLength+1)
+                        if (isoformLength[isoformNames[i]]-d+1) > 0: 
+                            probNumerators[i] = Alpha[i] / (isoformLength[isoformNames[i]]-d+1)
                         else: 
-                            up = Alpha[i]
-                    if down != 0: 
-                        tmpCompatibleMatrix[readName][isoformNames[i]] = up / down
-
-        if iterCount > 0:
+                            probNumerators[i] = Alpha[i]
+                probDenominator = sum(probNumerators)      
+                if probDenominator != 0: 
+                    for i in range(len(isoformNames)):
+                        tmpCompatibleMatrix[readName][isoformNames[i]] = probNumerators[i] / probDenominator
+        else:
             for readName in qualifiedRead:
-                down = 0.0
-                for j in range(len(isoformNames)):
-                    if CompatibleMatrix[readName][isoformNames[j]] == 1: 
-                        down += Alpha[j] * Hfunction[readName][isoformNames[j]]
+                probNumerators = [0 for j in range(len(isoformNames))]
                 for i in range(len(isoformNames)):
-                    up = 0.0
                     if CompatibleMatrix[readName][isoformNames[i]] == 1: 
-                        up = Alpha[i] * Hfunction[readName][isoformNames[i]]
-                    if down != 0: 
-                        tmpCompatibleMatrix[readName][isoformNames[i]] = up / down
+                        probNumerators[i] = Alpha[i] * Hfunction[readName][isoformNames[i]]
+                probDenominator = sum(probNumerators)    
+                if probDenominator != 0: 
+                    for i in range(len(isoformNames)):
+                        tmpCompatibleMatrix[readName][isoformNames[i]] = probNumerators[i] / probDenominator
 
+        #Maximization Step
         for i in range(len(isoformNames)):
-            up1 = 0.0
+            isoformReadCounts = 0.0
             for readName in qualifiedRead: 
-                up1 += tmpCompatibleMatrix[readName][isoformNames[i]]
+                isoformReadCounts += tmpCompatibleMatrix[readName][isoformNames[i]]
             oldAlpha[i] = Alpha[i]
-            Alpha[i] = up1 / readCount #readCount is total number of reads per gene
+            Alpha[i] = isoformReadCounts / readCount #readCount is total number of reads per gene
 
         iterCount += 1
 
