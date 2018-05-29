@@ -31,21 +31,21 @@ def getExonsReadMappedTo(cigarMatchInfoCount, cigarMatchRead, cigarNumberRead, e
 
     firstExonRead = -1
     lastExonRead = -1
+    currentExon = 0
     for i in range(cigarMatchInfoCount):
         
         if cigarMatchRead[i] == "M" or cigarMatchRead[i] == "I": ## matched CIGAR
 
             for j in range(1,cigarNumberRead[i]+1):
                 tmpbase = base + j
-                for k in range(len(exonStarts)):
-                    if exonIndicatorRead[k] == 1: 
-                        continue #Go to next loop iteration
-                    if tmpbase >= exonStarts[k] and tmpbase <= exonEnds[k]:
-                        if firstExonRead == -1:
-                            firstExonRead = k 
-                        lastExonRead = k
-                        exonIndicatorRead[k] = 1 ## confirm that the read covers this exon
-
+                while tmpbase > exonEnds[currentExon]:
+                    currentExon += 1
+                if tmpbase >= exonStarts[currentExon] and tmpbase <= exonEnds[currentExon]:
+                    if firstExonRead == -1:
+                        firstExonRead = currentExon 
+                    lastExonRead = currentExon
+                    exonIndicatorRead[currentExon] = 1 ## confirm that the read covers this exon
+                
             base += cigarNumberRead[i] # jump to next match information
 
         if cigarMatchRead[i] == "N": ## skipping area
@@ -62,42 +62,6 @@ def getExonsReadMappedTo(cigarMatchInfoCount, cigarMatchRead, cigarNumberRead, e
     #print(compatibleVector2)
 
     return compatibleVector, tmpcount, firstExonRead, lastExonRead
-
-# def getExonsReadMappedTo(cigarMatchInfoCount, cigarMatchRead, cigarNumberRead, exonStarts, base, numofExons, isoformNames, compatibleVector, exonIndicators):
-#     exonIndicatorRead = [0] * numofExons
-
-#     firstExonRead = -1
-#     lastExonRead = -1
-#     currentExon = 0
-#     for i in range(cigarMatchInfoCount):
-        
-#         if cigarMatchRead[i] == "M" or cigarMatchRead[i] == "I": ## matched CIGAR
-
-#             for j in range(1,cigarNumberRead[i]+1):
-#                 tmpbase = base + j
-#                 if tmpbase >= exonStarts[currentExon] and tmpbase <= exonEnds[currentExon]:
-#                     if firstExonRead == -1:
-#                         firstExonRead = currentExon 
-#                     lastExonRead = currentExon
-#                     exonIndicatorRead[currentExon] = 1 ## confirm that the read covers this exon
-#                 while tmpbase > exonEnds[currentExon]:
-#                     currentExon += 1
-#             base += cigarNumberRead[i] # jump to next match information
-
-#         if cigarMatchRead[i] == "N": ## skipping area
-#             base += cigarNumberRead[i] # jump to next match information directly
-
-#     for j in range(len(isoformNames)):
-#         for exonIndex in range(firstExonRead, lastExonRead+1):
-#             #print(exonIndicatorRead1[exonIndex], exonIndicators[isoformNames[j]][exonIndex])
-#             if exonIndicatorRead[exonIndex] != exonIndicators[isoformNames[j]][exonIndex]:
-#                 compatibleVector[j] = 0
-#     tmpcount = sum(exonIndicatorRead)
-#     #print("Vectors")
-#     #print(compatibleVector)
-#     #print(compatibleVector2)
-
-#     return compatibleVector, tmpcount, firstExonRead, lastExonRead
 
 ###############################################################################
 ###  ARGUMENT SETTINGS
@@ -500,8 +464,9 @@ for gene in geneStructureInformation: #This can be made parallel easily
             
     diff = 1.0
     iterCount = 0
-    d = 300
+    readLength = 300
     diffMax = .0001
+    Z = tmpCompatibleMatrix
     while diff > diffMax:
         #print(gene+"\t"+str(geneCount)+"\t"+str(iterCount)+"\t"+str(diff)+"\t"+str(tmpTime))
 
@@ -511,14 +476,14 @@ for gene in geneStructureInformation: #This can be made parallel easily
                 probNumerators = [0 for j in range(len(isoformNames))]
                 for i in range(len(isoformNames)):
                     if CompatibleMatrix[readName][isoformNames[i]] == 1:
-                        if (isoformLength[isoformNames[i]]-d+1) > 0: 
-                            probNumerators[i] = Alpha[i] / (isoformLength[isoformNames[i]]-d+1)
+                        if (isoformLength[isoformNames[i]]-readLength+1) > 0: 
+                            probNumerators[i] = Alpha[i] / (isoformLength[isoformNames[i]]-readLength+1)
                         else: 
                             probNumerators[i] = Alpha[i]
                 probDenominator = sum(probNumerators)      
                 if probDenominator != 0: 
                     for i in range(len(isoformNames)):
-                        tmpCompatibleMatrix[readName][isoformNames[i]] = probNumerators[i] / probDenominator
+                        Z[readName][isoformNames[i]] = probNumerators[i] / probDenominator
         else:
             for readName in qualifiedRead:
                 probNumerators = [0 for j in range(len(isoformNames))]
@@ -528,13 +493,13 @@ for gene in geneStructureInformation: #This can be made parallel easily
                 probDenominator = sum(probNumerators)    
                 if probDenominator != 0: 
                     for i in range(len(isoformNames)):
-                        tmpCompatibleMatrix[readName][isoformNames[i]] = probNumerators[i] / probDenominator
+                        Z[readName][isoformNames[i]] = probNumerators[i] / probDenominator
 
         #Maximization Step
         for i in range(len(isoformNames)):
             isoformReadCounts = 0.0
             for readName in qualifiedRead: 
-                isoformReadCounts += tmpCompatibleMatrix[readName][isoformNames[i]]
+                isoformReadCounts += Z[readName][isoformNames[i]]
             oldAlpha[i] = Alpha[i]
             Alpha[i] = isoformReadCounts / readCount #readCount is total number of reads per gene
 
