@@ -4,57 +4,61 @@ from __future__ import print_function # load print function in python3
 from collections import defaultdict
 import math, sys, os, re, pysam, time, copy
 import numpy as np
+from multiprocessing import Process, Queue
 
 ###############################################################################
 ###  ARGUMENT SETTINGS
 ###############################################################################
 
 # checking whether argument is valid or not
-validArgList = ["-counts", "-readlen", "-precision", "-out"]
-for argIndex in range(1,len(sys.argv)):
-    if sys.argv[argIndex][0] == "-" and sys.argv[argIndex] not in validArgList :
-        print("Argument \'"+sys.argv[argIndex]+"\' is invalid!")
+def getArgs():
+    validArgList = ["-counts", "-readlen", "-precision", "-out"]
+    for argIndex in range(1,len(sys.argv)):
+        if sys.argv[argIndex][0] == "-" and sys.argv[argIndex] not in validArgList :
+            print("Argument \'"+sys.argv[argIndex]+"\' is invalid!")
+            sys.exit()
+            
+    countFileExists = False
+    readLengthExists = False
+    precisionExists = False
+    outFileExists = False
+    argIndex = 1
+
+    while argIndex < len(sys.argv):
+        if sys.argv[argIndex] == "-counts":  ## load in counts file
+            argIndex += 1
+            countFileAbsPath = os.path.dirname(os.path.abspath(sys.argv[argIndex]))
+            countTmp = sys.argv[argIndex].split("/")
+            countFile = countFileAbsPath + "/" + countTmp[len(countTmp)-1]
+            countFileExists = True
+            argIndex += 1
+        elif sys.argv[argIndex] == "-readlen":  ## load in read len
+            argIndex += 1
+            readLength = int(sys.argv[argIndex])
+            readLengthExists = True
+            argIndex += 1
+        elif sys.argv[argIndex] == "-precision":  ## load in precision
+            argIndex += 1
+            diffMax = float(sys.argv[argIndex])
+            precisionExists = True
+            argIndex += 1
+        elif sys.argv[argIndex] == "-out":  ## load in output file
+            argIndex += 1
+            outFileAbsPath = os.path.dirname(os.path.abspath(sys.argv[argIndex]))
+            outTmp = sys.argv[argIndex].split("/")
+            outFile = outFileAbsPath + "/" + outTmp[len(outTmp)-1]
+            outFileExists = True
+            argIndex += 1                  
+
+    if (not countFileExists) or (not readLengthExists) or (not precisionExists) or (not outFileExists): ## lack enough arguments
+        print("Please provide arguments:")
+        print("-counts\tSegment count file")
+        print("-readlen\tRead Length")
+        print("-precision\tPrecision")
+        print("-out\tOutput file")
         sys.exit()
-        
-countFileExists = False
-readLengthExists = False
-precisionExists = False
-outFileExists = False
-argIndex = 1
 
-while argIndex < len(sys.argv):
-    if sys.argv[argIndex] == "-counts":  ## load in counts file
-        argIndex += 1
-        countFileAbsPath = os.path.dirname(os.path.abspath(sys.argv[argIndex]))
-        countTmp = sys.argv[argIndex].split("/")
-        countFile = countFileAbsPath + "/" + countTmp[len(countTmp)-1]
-        countFileExists = True
-        argIndex += 1
-    elif sys.argv[argIndex] == "-readlen":  ## load in read len
-        argIndex += 1
-        readLength = int(sys.argv[argIndex])
-        readLengthExists = True
-        argIndex += 1
-    elif sys.argv[argIndex] == "-precision":  ## load in precision
-        argIndex += 1
-        diffMax = float(sys.argv[argIndex])
-        precisionExists = True
-        argIndex += 1
-    elif sys.argv[argIndex] == "-out":  ## load in output file
-        argIndex += 1
-        outFileAbsPath = os.path.dirname(os.path.abspath(sys.argv[argIndex]))
-        outTmp = sys.argv[argIndex].split("/")
-        outFile = outFileAbsPath + "/" + outTmp[len(outTmp)-1]
-        outFileExists = True
-        argIndex += 1                  
-
-if (not countFileExists) or (not readLengthExists) or (not precisionExists) or (not outFileExists): ## lack enough arguments
-    print("Please provide arguments:")
-    print("-counts\tSegment count file")
-    print("-readlen\tRead Length")
-    print("-precision\tPrecision")
-    print("-out\tOutput file")
-    sys.exit()
+    return readLength, diffMax, outFile
 
 countFileHandle = open(countFile, 'r')
 OUT = open(outFile, 'w')
@@ -81,33 +85,72 @@ else:
 
 OUT.write("GeneName\tIsoformName\tNumberOfReads\tRelativeAbundance\n") ## Header of Results
 
-countFileLine = countFileHandle.readline()
+countFileLines = countFileHandle.readlines()
 
-while countFileLine != "":
-    splitLine = countFileLine.strip().split("\t")
-    currGene = splitLine[3] #Get Current Gene
-    print(currGene)
+countFileLineIndexStart = 0
+countFileLineEnd = len(countFileLines)
 
+countFileLineIndex = countFileLineIndexStart
+countFileLine = countFileLines[countFileLineIndex]
+
+outputFileLines = Queue()
+
+while countFileLineIndex < countFileLineEnd:
     segmentIDs = []
+    segmentCountsDict = dict()
     segmentCounts = []
     segmentLengths = []
     segmentIsoforms = dict()
     geneIsoforms = []
 
-    while countFileLine != "" and splitLine[3] == currGene:
-        segmentID = splitLine[0]
-        segmentIDs.append(segmentID)
-        segmentCounts.append(int(splitLine[1]))
-        segmentLengths.append(int(splitLine[4]))
+    splitLine = countFileLine.strip().split("\t")
 
-        segmentIsoforms[segmentID] = splitLine[6].split(",")
-        for isoform in segmentIsoforms[segmentID]:
-            if isoform not in geneIsoforms:
-                geneIsoforms.append(isoform)
+    if pairedEndMode:
+        currGene = splitLine[4] #Get Current Gene
+        while countFileLineIndex < countFileLineEnd and splitLine[4] == currGene:
+            segmentID1 = splitLine[0]
+            segmentID2 = splitLine[1]
+            if segmentID1 == segmentID2:
+                segmentIDs.append(segmentID1)
+                segmentLengths.append(int(splitLine[5]))
+                segmentIsoforms[segmentID1] = splitLine[9].split(",")
+                for isoform in segmentIsoforms[segmentID1]:
+                    if isoform not in geneIsoforms:
+                        geneIsoforms.append(isoform)
+            if segmentID1 not in segmentCountsDict:
+                segmentCountsDict[segmentID1] = int(splitLine[2])
+            else:
+                segmentCountsDict[segmentID1] += int(splitLine[2])
 
-        countFileLine = countFileHandle.readline()
-        splitLine = countFileLine.strip().split("\t")
+            if segmentID2 not in segmentCountsDict:
+                segmentCountsDict[segmentID2] = int(splitLine[2])
+            else:
+                segmentCountsDict[segmentID2] += int(splitLine[2])
 
+            countFileLineIndex += 1
+            if countFileLineIndex < countFileLineEnd:
+                countFileLine = countFileLines[countFileLineIndex]
+                splitLine = countFileLine.strip().split("\t")
+    else:
+        currGene = splitLine[3] #Get Current Gene
+        while countFileLineIndex < countFileLineEnd and splitLine[3] == currGene:
+            segmentID = splitLine[0]
+            segmentIDs.append(segmentID)
+            segmentCountsDict[segmentID] = int(splitLine[1])
+            segmentLengths.append(int(splitLine[4]))
+
+            segmentIsoforms[segmentID] = splitLine[6].split(",")
+            for isoform in segmentIsoforms[segmentID]:
+                if isoform not in geneIsoforms:
+                    geneIsoforms.append(isoform)
+
+            countFileLineIndex += 1
+            if countFileLineIndex < countFileLineEnd:
+                countFileLine = countFileLines[countFileLineIndex]
+                splitLine = countFileLine.strip().split("\t")
+
+    for segmentID in segmentIDs: #Only get segment counts of certain segments
+        segmentCounts.append(segmentCountsDict[segmentID])
     readCount = sum(segmentCounts)
 
     if readCount == 0:
@@ -132,8 +175,6 @@ while countFileLine != "":
             if(segmentIsoformIndicatorMatrix[i,j]):
                 isoformCounts[j] += segmentCounts[i]
                 isoformLengths[j] += effectiveSegmentLengths[i]
-
-    geneCount += 1
     
     ############################################################################################################################################
     ## Find H for each segment
@@ -171,22 +212,19 @@ while countFileLine != "":
 
         #Expectation Step
         for i in range(len(segmentIDs)):
-            probNumerators = np.zeros(shape=len(geneIsoforms))
-            for j in range(len(geneIsoforms)):
-                if segmentIsoformIndicatorMatrix[i, j]: 
-                    probNumerators[j] = Alpha[j] * segmentH[i, j]
-            probDenominator = sum(probNumerators)    
-            for j in range(len(geneIsoforms)):
-                Z[i, j] = segmentCounts[i] * probNumerators[j] / probDenominator
+            probNumerators = np.multiply(Alpha, segmentH[i])
+            probDenominator = np.sum(probNumerators)
+            Z[i] = np.multiply(probNumerators, segmentCounts[i] / probDenominator)   
 
         #Maximization Step
-        oldAlpha = np.copy(Alpha)
+        oldAlpha = Alpha
         Alpha = np.multiply(np.sum(Z, axis=0), 1/float(readCount))
         
-        iterCount += 1
-
         diffArray = np.absolute(np.subtract(Alpha, oldAlpha))
         diff = diffArray.max()
+
+        iterCount += 1
+
                 
     sumAlpha = np.sum(Alpha)
     if sumAlpha == 0: 
@@ -199,15 +237,28 @@ while countFileLine != "":
         Thetas[j] = Alpha[j] / isoformLengths[j]
     sumTheta = np.sum(Thetas)
 
-    print(currGene+"\t"+str(iterCount)+" iterations\tDone!")
+    print(str(geneCount) + ": " + str(currGene)+"\t"+str(iterCount)+" iterations\tDone!")
 
-    
+    outputStrings = ["" for i in range(len(Alpha))]
     for i in range(len(Alpha)):
         Thetas[i] /= sumTheta
         #print(currGene+"\t"+str(geneCount)+"\t"+str(iterCount)+"\t"+isoformNames[i]+"\t"+str(isoformRelativeAbundances[i])+"\t"+str(tmpTime))
-        OUT.write(currGene+"\t"+geneIsoforms[i]+"\t"+str(isoformCounts[i])+"\t"+str(Thetas[i])+"\n") ## write results into specified file
+        outputString = currGene+"\t"+geneIsoforms[i]+"\t"+str(isoformCounts[i])+"\t"+str(Thetas[i])+"\n"
+        outputStrings[i] = outputString
+
+    outputFileLines.put(outputStrings)
 
     print("Time for EM", time.time() - startTime)
+    geneCount += 1
 
-print(time.time() - startTime)
+if __name__ == "__main__":
+
+
+while not outputFileLines.empty():
+    outputStrings = outputFileLines.get()
+    for outputFileLine in outputStrings:
+        OUT.write(outputFileLine)
+
+countFileHandle.close()
 OUT.close()
+print(time.time() - startTime)
