@@ -25,7 +25,7 @@ def getCigarStringInformation(readCigar, readName, readNumber):
             cigarNumberInfoCount += 1
 
     return cigarMatchRead, cigarNumberRead, cigarMatchInfoCount, cigarNumberInfoCount
-
+    
 def getExonsReadMappedTo(cigarMatchInfoCount, cigarMatchRead, cigarNumberRead, exonStarts, base, numofExons, isoformNames, compatibleVector, exonIndicators):
     exonIndicatorRead = [0] * numofExons
 
@@ -62,6 +62,42 @@ def getExonsReadMappedTo(cigarMatchInfoCount, cigarMatchRead, cigarNumberRead, e
     #print(compatibleVector2)
 
     return compatibleVector, tmpcount, firstExonRead, lastExonRead
+# def getExonsReadMappedTo(cigarMatchInfoCount, cigarMatchRead, cigarNumberRead, exonStarts, base, numofExons, isoformNames, compatibleVector, exonIndicators):
+#     exonIndicatorRead = [0] * numofExons
+
+#     firstExonRead = -1
+#     lastExonRead = -1
+#     currentExon = 0
+#     for i in range(cigarMatchInfoCount):
+        
+#         if cigarMatchRead[i] == "M" or cigarMatchRead[i] == "I": ## matched CIGAR
+
+#             while currentExon < numofExons and base > exonEnds[currentExon]:
+#                 currentExon += 1
+#             while currentExon < numofExons and (((base + 1 <= exonStarts[currentExon]) and (exonStarts[currentExon] <= base+cigarNumberRead[i])) or 
+#             ((base + 1 <= exonEnds[currentExon]) and (exonEnds[currentExon] <= base+cigarNumberRead[i]))):
+#                 if firstExonRead == -1:
+#                     firstExonRead = currentExon 
+#                 lastExonRead = currentExon
+#                 exonIndicatorRead[currentExon] = 1 ## confirm that the read covers this exon
+#                 currentExon += 1
+
+#             base += cigarNumberRead[i] # jump to next match information
+
+#         if cigarMatchRead[i] == "N": ## skipping area
+#             base += cigarNumberRead[i] # jump to next match information directly
+
+#     for j in range(len(isoformNames)):
+#         for exonIndex in range(firstExonRead, lastExonRead+1):
+#             #print(exonIndicatorRead1[exonIndex], exonIndicators[isoformNames[j]][exonIndex])
+#             if exonIndicatorRead[exonIndex] != exonIndicators[isoformNames[j]][exonIndex]:
+#                 compatibleVector[j] = 0
+#     tmpcount = sum(exonIndicatorRead)
+#     #print("Vectors")
+#     #print(compatibleVector)
+#     #print(compatibleVector2)
+
+#     return compatibleVector, tmpcount, firstExonRead, lastExonRead
 
 ###############################################################################
 ###  ARGUMENT SETTINGS
@@ -172,6 +208,7 @@ for gene in geneStructureInformation: #This can be made parallel easily
     ## load all reads information which were mapped to the specific gene within this loop using pysam
     for read in bamFilePysam.fetch(geneChr, geneStart, geneEnd):
         line = str(read)
+        print(line)
         tmpinf = line.split("\t")
         tmpReadName = tmpinf[0]
         tmpReadChr = geneChr
